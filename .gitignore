@@ -1,0 +1,23 @@
+# Secrets/local config - never commit, see the .dist templates instead
+firmware/*/config.h
+server/weather_config.py
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Regenerated cache
+server/_weather_render.png
+
+# Local Claude Code session config
+.claude/
+
+# Arduino build artifacts
+build/
+*.ino.elf
+*.ino.bin
+*.ino.map
+
+# OS
+.DS_Store

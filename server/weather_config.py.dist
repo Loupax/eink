@@ -1,0 +1,9 @@
+# Copy this file to weather_config.py (gitignored) and fill in your own location.
+# Tip: look up lat/lon for a postal code with, e.g.:
+#   curl https://api.zippopotam.us/<country-code>/<postal-code>
+
+LOCATION_NAME = "Your City"
+POSTAL_CODE = "00000"
+LATITUDE = 0.0
+LONGITUDE = 0.0
+TIMEZONE = "UTC"

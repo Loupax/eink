@@ -1,0 +1,11 @@
+#pragma once
+
+// Copy this file to config.h (gitignored) and fill in your own values.
+
+#define WIFI_SSID     "your-wifi-ssid"
+#define WIFI_PASSWORD "your-wifi-password"
+
+// Raw 1-bit packed bitmap, 800x480 (48000 bytes). Point this at server/app.py
+// (dynamic, renders fresh on every request) or a static file server, e.g.
+// `cd server && python3 -m http.server 8000`.
+#define IMAGE_URL "http://192.168.1.100:8000/screen.bin"
