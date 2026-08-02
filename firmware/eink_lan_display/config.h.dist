@@ -7,5 +7,6 @@
 
 // Raw 1-bit packed bitmap, 800x480 (48000 bytes). Point this at server/app.py
 // (dynamic, renders fresh on every request) or a static file server, e.g.
-// `cd server && python3 -m http.server 8000`.
+// `cd server && python3 -m http.server 8000`. See server/deploy/ for a
+// script that ships app.py to a always-on box behind an nginx reverse proxy.
 #define IMAGE_URL "http://192.168.1.100:8000/screen.bin"

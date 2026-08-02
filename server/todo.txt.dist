@@ -1,0 +1,5 @@
+# Copy this file to todo.txt (gitignored) and list your items, one per
+# line. "[x] " prefix = checked/done, "[ ] " prefix (or no prefix at all) =
+# unchecked. Blank lines and lines starting with # are ignored.
+[x] Example completed task
+[ ] Example pending task

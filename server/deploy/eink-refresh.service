@@ -1,0 +1,8 @@
+[Unit]
+Description=Trigger eink.local display refresh (fired by eink-refresh.path)
+
+[Service]
+Type=oneshot
+# Best-effort: the display might be off/asleep/unplugged. Don't retry or
+# alert on failure - the next todo.txt edit fires this again anyway.
+ExecStart=/usr/bin/curl -sf --max-time 15 http://eink.local/refresh

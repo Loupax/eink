@@ -1,0 +1,16 @@
+[Unit]
+Description=eink weather image server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=loupax
+Group=loupax
+WorkingDirectory=/home/loupax/src/eink-weather
+ExecStart=/home/loupax/src/eink-weather/.venv/bin/python3 server/app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -46,11 +46,12 @@ All sketches: Arduino IDE, board = **ESP32 Dev Module**, library = **GxEPD2**
 - **`eink_static_image/`** - renders `image_data.h`, a C byte array baked in
   at compile time. Regenerate that header with `tools/img_to_header.py`
   (see below) before flashing.
-- **`eink_lan_display/`** - connects to WiFi, and on every BOOT-button press
-  fetches a raw 1-bit bitmap over HTTP and renders it. Needs
-  `config.h` (copy from `config.h.dist` and fill in your WiFi credentials
-  and the image URL - `config.h` is gitignored since it holds your WiFi
-  password in plaintext).
+- **`eink_lan_display/`** - connects to WiFi, and fetches a raw 1-bit bitmap
+  over HTTP and renders it on boot, on every BOOT-button press, or on a GET
+  request to `http://eink.local/refresh` (mDNS, no need to know its IP).
+  Needs `config.h` (copy from `config.h.dist` and fill in your WiFi
+  credentials and the image URL - `config.h` is gitignored since it holds
+  your WiFi password in plaintext).
 - **`eink_deep_sleep_test/`** - does nothing but immediately
   `esp_deep_sleep_start()`, waking every 60s or on BOOT press. For measuring
   the board's real sleep-current draw with a multimeter before committing to
@@ -129,35 +130,106 @@ Look up lat/lon for a postal code with, e.g.:
 curl https://api.zippopotam.us/de/13125
 ```
 
+### `server/todo.txt`
+
+Copy from `todo.txt.dist` and list your items, one per line (also
+gitignored, and - unlike `weather_config.py` - excluded from
+`server/deploy/deploy.sh`'s sync too, since it's meant to be edited directly
+wherever the server is running rather than pushed from your laptop):
+
+```sh
+cp server/todo.txt.dist server/todo.txt
+```
+
+`[x] ` prefixes a checked/done item, `[ ] ` (or no prefix at all) an
+unchecked one. Blank lines and lines starting with `#` are ignored. Read
+fresh from disk on every request - no restart needed after editing it. Shown
+as a checklist next to the temperature; if more items are listed than fit,
+the list is truncated with a trailing "More..." line rather than overflowing
+the fixed 800x480 canvas.
+
 ### `tools/render_weather.py`
 
 One-shot: fetches current weather + forecast from Open-Meteo (no API key
 needed), fills `server/weather_template.html` (plain HTML/CSS - edit that
 file directly to change the layout; its `{{TOKEN}}` placeholders get
 substituted by simple string replacement, not a templating engine, so
-regular CSS curly braces are safe to use), screenshots it at 800x480 via
-headless Chromium, dithers, and writes `server/screen.bin`.
+regular CSS curly braces are safe to use), screenshots it via headless
+Chromium, dithers, and writes `server/screen.bin` (device) and
+`server/screen.png` (browser preview).
 
 ```sh
 source .venv/bin/activate
 python3 tools/render_weather.py
 ```
 
+Rendering notes:
+
+- Screenshots at 3x the target 800x480 (`SUPERSAMPLE` in the script) and
+  downscales with a Lanczos filter before thresholding to 1-bit. This is
+  text/line content, not a photo - there's no gradient worth dithering, and
+  at 1x a thin letter stroke's anti-aliased edge is a coin flip under a hard
+  threshold (survives or vanishes depending on sub-pixel position).
+  Supersampling first gives the downscale real gray levels to work with, so
+  strokes come out consistently solid instead of speckled/broken. No
+  dithering is applied at the final threshold step (contrast
+  `tools/eink_convert.py`, which dithers on purpose for photos).
+- Depends on `fc-match "Liberation Sans"` actually resolving to Liberation
+  Sans (`ttf-liberation` on Arch) on whatever machine runs this - the
+  template's `font-family` falls back through Arial/Helvetica/sans-serif,
+  and a silently substituted fallback font (e.g. FreeSans) will still
+  render, just not the way anything was tuned against.
+
 ### `server/app.py`
 
-Serves `/screen.bin` dynamically - renders a fresh weather report on *every*
-request (not a cached/static file), falling back to the last successfully
-rendered `server/screen.bin` if a render fails (e.g. a transient Open-Meteo
-hiccup), so a network blip doesn't leave the display blank.
+Serves two endpoints, both rendering a fresh weather report on *every*
+request (not a cached/static file):
+
+- `/screen.bin` - the raw 1-bit bitmap `eink_lan_display` fetches.
+- `/screen.png` - the same render as a PNG, for previewing template changes
+  in a browser without needing the physical device.
+
+Falls back to the last successfully rendered `server/screen.bin` /
+`server/screen.png` if a render fails (e.g. a transient Open-Meteo hiccup),
+so a network blip doesn't leave the display blank.
 
 ```sh
 source .venv/bin/activate
 python3 server/app.py
-# serving on :8000, GET /screen.bin renders fresh each time (~1-2s)
+# serving on :8000, both endpoints render fresh each time (~1-2s)
 ```
 
 Point `eink_lan_display`'s `config.h` `IMAGE_URL` at
-`http://<this-machine's-LAN-IP>:8000/screen.bin`.
+`http://<this-machine's-LAN-IP>:8000/screen.bin` for local testing, or see
+`server/deploy/` below for running it as an always-on service.
+
+### `server/deploy/`
+
+Ships `server/` + `tools/` to an always-on Linux box and runs `app.py` there
+behind an nginx reverse proxy, so the display always has something to fetch
+without your laptop needing to be on. Written against a specific personal
+setup (a mini PC reachable at `brick.local` over ssh, running Arch +
+systemd + nginx, with a `avahi-alias@.service` systemd template already in
+place for publishing `<name>.local` mDNS hostnames) - treat `deploy.sh` as a
+worked example to adapt, not a drop-in script for a different box.
+
+```sh
+./server/deploy/deploy.sh
+```
+
+Syncs code, (re)builds the remote venv, and tells you what to do next: on
+first run, one-time sudo setup steps (systemd service, nginx site, mDNS
+alias, and `nss-mdns` so the box can resolve *other* `.local` names too, not
+just publish its own - see `eink-refresh.path`/`.service` below); on later
+runs, whether the service needs restarting (only for `.py` changes - HTML
+template and `todo.txt` are read fresh from disk on every request, so
+editing those live needs no redeploy at all).
+
+`eink-refresh.path` + `eink-refresh.service` are an optional pair of
+systemd units: a `PathChanged` watch on `todo.txt` that calls
+`http://eink.local/refresh` (see `eink_lan_display`'s HTTP refresh endpoint
+above) whenever the file is edited, so the physical display updates itself
+without needing the BOOT button pressed or a manual refresh call.
 
 ### `tools/eink_convert.py`
 

@@ -156,3 +156,122 @@ Waveshare 7.5" e-Paper (800x480, B&W) + Waveshare ESP32 Driver Board, Arduino ID
   and measure current in series with USB VBUS using a multimeter.
 - Not yet implemented: the actual scheduled-wake + button-wake production
   firmware. Waiting on the measurement result before deciding if it's worth it.
+
+## Phase 6: production deployment, to-do list, always-on refresh (2026-08-02)
+
+- User doesn't want to run the server on their laptop long-term - has a mini
+  PC (`brick.local`, Arch + systemd + nginx, ssh reachable) already hosting
+  a couple other self-hosted things (`ollama.local`, `excalidraw.local` via
+  an existing `avahi-alias@.service` systemd template). Followed that same
+  convention: `weather.local` via `avahi-alias@weather.service`, nginx
+  reverse-proxying to `app.py` on :8000, `eink-weather.service` running as
+  the `loupax` user (not root - matches the existing native-service
+  pattern, Docker-based services on that box use root instead).
+- Wrote `server/deploy/deploy.sh`: rsyncs `tools/` + `server/` to
+  `~/src/eink-weather` on brick, rebuilds the venv, and reports whether a
+  service restart is needed based on whether any `.py` file actually
+  changed (HTML/txt files are read fresh from disk every request, no
+  restart needed for those) - never runs the restart itself, since sudo
+  needs a real TTY for the password prompt and this session has none.
+  Neither this machine nor brick had `rsync` installed; both needed
+  `pacman -S rsync`.
+- Mid-session, a routine `sudo pacman -Syu` on brick (to install `rsync`)
+  broke `sudo` itself - `pam_unix` started reporting "could not identify
+  password" for every attempt, `su -` with the *root* password still
+  worked. Root cause: `/etc/shadow`'s mtime lined up to the same second the
+  `shadow` package's upgrade hook ran, strongly suggesting that hook
+  rewrote it. Fixed via `su -` + `passwd loupax`. Lesson: a big rolling-release
+  upgrade can silently break auth; if sudo starts rejecting a correct
+  password right after one, suspect the upgrade before the user's typing.
+- Added `server/app.py` `/screen.png` endpoint (same render as PNG, for
+  previewing template changes in a browser instead of flashing the
+  physical device each time) and `tools/render_weather.py` writes
+  `server/screen.png` alongside `screen.bin`.
+- Added a to-do list next to the temperature. Iterated the layout live
+  against a local server + browser preview loop rather than guessing:
+  - First cut used `display:flex` for the temp/todo row - a long item
+    wrapping to multiple lines pushed the whole rest of the page (including
+    the day forecast) down, off the bottom of the fixed 800x480 canvas
+    entirely (screenshot is a fixed viewport, not a scrollable page - it just
+    silently disappears). Fixed by taking the to-do box out of document flow
+    (`position: absolute`, fixed `max-height` + `overflow: hidden`) so it can
+    never push siblings around, and clamping each item to 2 lines
+    (`-webkit-line-clamp`) with an ellipsis instead of wrapping indefinitely.
+  - `position: absolute`'s containing block is the nearest positioned
+    ancestor's *padding* box, which ignores that ancestor's own padding -
+    `top`/`right` had to restate `.wrap`'s 30px/40px padding explicitly to
+    actually line up with the rest of the content instead of sitting flush
+    against the canvas edge.
+  - Item count that fits varies (2-line items cost more space than 1-line
+    ones), so truncation is budgeted by *estimated rendered line count*
+    (`TODO_LINE_BUDGET`, `TODO_CHARS_PER_LINE` in `render_weather.py`), not a
+    fixed item cap - swaps whatever doesn't fit for a trailing "More..." line
+    rather than ever letting `overflow: hidden` silently eat a real item.
+  - Data source: discussed Google Tasks (rejected - OAuth-only, tokens expire
+    hourly, no simple static-token option) vs. Todoist (real static API
+    token) vs. a published-to-web Google Sheet vs. a local file. User picked
+    the local file for now (`server/todo.txt`, gitignored, `.dist` template
+    committed) - one item per line, `[x] `/`[ ] ` prefix for checked state,
+    `#` comments. Deliberately excluded from `deploy.sh`'s rsync (unlike
+    `weather_config.py`) since it's edited far more often and directly on
+    whichever machine is running the server, not pushed from the laptop.
+  - Done items render with `text-decoration: line-through` (`.todo-done`).
+- Rendering quality pass, on user's report of speckled/thin small text on
+  the physical panel:
+  - Pillow's `.convert("1")` dithers (Floyd-Steinberg) by default - fine for
+    photos (`tools/eink_convert.py` keeps it there on purpose), wrong for
+    this template's text/lines, where it just added speckle noise to
+    anti-aliased font edges. Disabled with `dither=Image.NONE`.
+  - That alone made small-text strokes look *thinner*, not better - a
+    single-resolution (1x) render being hard-thresholded means a thin
+    stroke's anti-aliased edge is essentially a coin flip. Fixed properly by
+    rendering at 3x (`device_scale_factor` in Playwright) and downscaling
+    with Lanczos before the threshold, so anti-aliasing has real gray levels
+    to work with. Supersampling can't add resolution the final 800x480
+    output doesn't have, though - the smallest text (16-18px) was still a
+    genuine resolution floor, fixed by bumping those specific font-sizes and
+    weights (`.updated`, `.todo-item`, `.day .dlo` to 600 weight) rather than
+    chasing it further in the rendering pipeline.
+  - Discussed (no action) whether a dedicated "e-ink font" exists - concluded
+    no meaningful open ecosystem for that; Kindle's Bookerly/Caecilia are
+    proprietary and tuned for a different pipeline (on-device hinted
+    rasterization + grayscale dithering) than this project's
+    browser-render-then-global-threshold approach anyway.
+- Added a way to trigger a refresh without physically pressing the BOOT
+  button: `eink_lan_display.ino` now runs `ESPmDNS` (`eink.local`) and a
+  minimal hand-rolled `WiFiServer` HTTP listener - `GET /refresh` calls the
+  same `refresh()` the button does (faster than a full restart, WiFi's
+  already up). No auth - fine for a trusted home LAN, not something to
+  port-forward.
+- Learned the hard way that a USB power bank isn't a reliable long-term
+  power source for this board: after unplugging from the laptop, the ESP32
+  went unreachable a few tens of seconds in - the power bank's own
+  auto-shutoff (common behavior when it sees current draw below its
+  "something's still connected" threshold) had cut power. Switched to a
+  plain 5V USB wall charger instead (safe even from USB-C PD/fast-charge
+  bricks - they only step up voltage if the connected device negotiates for
+  it, and this board doesn't).
+- Added `eink-refresh.path` + `eink-refresh.service` (systemd path unit +
+  oneshot service) on brick: watches `todo.txt` for changes
+  (`PathChanged`), calls `http://eink.local/refresh` on every edit. Hit two
+  more brick-specific gaps getting there, neither related to the ESP32
+  itself:
+  - brick could resolve mDNS names via `avahi-resolve` (talks to
+    `avahi-daemon` directly) but *not* via `curl`/`getent` - its
+    `/etc/nsswitch.conf` routed `hosts:` through `resolve`
+    (systemd-resolved), which wasn't even running. Fixed by installing
+    `nss-mdns` and adding `mdns4_minimal [NOTFOUND=return]` to the
+    `nsswitch.conf` hosts line, so glibc's resolver talks to the
+    already-running avahi-daemon instead (same backend `avahi-resolve` uses).
+  - The to-do strikethrough CSS wasn't showing on the real device despite
+    correct markup/CSS on disk (verified directly). Root cause was the
+    *running* `eink-weather.service` process predating both this change and
+    the supersampling change - Python only imports a module once at process
+    start, so the deployed files were right but the live process was still
+    running old code from its last actual restart. `systemctl restart`
+    picked up both fixes at once. Second, unrelated gap found along the way:
+    brick didn't have `ttf-liberation` installed at all, so it had been
+    silently rendering the whole template in a substituted font (FreeSans)
+    the entire time - every rendering-quality change this session had only
+    ever been validated against the *local* dev server's font, not brick's.
+    Installing `ttf-liberation` fixed that retroactively too.
