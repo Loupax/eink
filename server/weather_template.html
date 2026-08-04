@@ -7,20 +7,36 @@
     font-family: "Liberation Sans", Arial, Helvetica, sans-serif;
     box-sizing: border-box;
   }
-  .wrap { padding: 30px 40px; }
+  .wrap { padding: 30px 40px; position: relative; }
   .location { font-size: 32px; font-weight: bold; }
-  .updated { font-size: 16px; color: #444; margin-top: 2px; }
+  .updated { font-size: 18px; font-weight: 600; color: #444; margin-top: 2px; }
   .current { display: flex; align-items: baseline; margin-top: 10px; }
   .temp { font-size: 140px; font-weight: bold; line-height: 1; }
   .unit { font-size: 48px; font-weight: bold; margin-left: 6px; }
   .desc { font-size: 30px; margin-top: 4px; }
   .hilo { font-size: 22px; margin-top: 6px; color: #333; }
+  /* Absolutely positioned + fixed max-height so a long item can never push
+     the rest of the (unscrollable, fixed 800x480) layout around - it just
+     gets clamped with an ellipsis instead. */
+  /* position:absolute is relative to .wrap's padding box, which ignores
+     .wrap's own padding - so top/right have to restate it (30px/40px) to
+     actually line up with .location and the rest of the content instead of
+     sitting flush against the canvas edge. */
+  .todo { position: absolute; top: 30px; right: 40px; width: 280px; max-height: 260px; overflow: hidden; }
+  .todo-title { font-size: 22px; font-weight: bold; border-bottom: 3px solid black; padding-bottom: 4px; margin-bottom: 6px; }
+  .todo-item {
+    font-size: 19px; font-weight: 600; margin-bottom: 6px;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .todo-more { color: #444; font-style: italic; }
+  .todo-done { text-decoration: line-through; color: #444; }
   hr { border: none; border-top: 3px solid black; margin: 20px 0; }
   .forecast { display: flex; justify-content: space-between; }
   .day { text-align: center; font-size: 20px; width: 18%; }
   .day .name { font-weight: bold; font-size: 22px; }
   .day .dhi { font-size: 22px; margin-top: 6px; }
-  .day .dlo { font-size: 18px; color: #444; }
+  .day .dlo { font-size: 20px; font-weight: 600; color: #444; }
 </style>
 </head>
 <body>
@@ -29,6 +45,10 @@
     <div class="updated">Updated {{UPDATED}}</div>
     <div class="current">
       <div class="temp">{{CURRENT_TEMP}}</div><div class="unit">&deg;C</div>
+    </div>
+    <div class="todo">
+      <div class="todo-title">To-Do</div>
+      {{TODO_ITEMS}}
     </div>
     <div class="desc">{{CURRENT_DESC}}</div>
     <div class="hilo">H:{{TODAY_HI}}&deg; L:{{TODAY_LO}}&deg;</div>

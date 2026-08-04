@@ -1,6 +1,8 @@
 // Waveshare 7.5" e-Paper V2 (800x480, B&W) on the Waveshare ESP32 Driver
-// Board. Connects to WiFi, and on each press of the BOOT button, fetches a
-// raw 1-bit packed bitmap from IMAGE_URL (see config.h) and renders it.
+// Board. Connects to WiFi, and fetches a raw 1-bit packed bitmap from
+// IMAGE_URL (see config.h) and renders it: on boot, on each press of the
+// BOOT button, or on a GET request to http://eink.local/refresh (see
+// handleClient()).
 //
 // Server-side: convert an image with tools/img_to_bin.py, then serve it
 // (e.g. `cd server && python3 -m http.server 8000`).
@@ -8,8 +10,14 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ESPmDNS.h>
 #include <GxEPD2_BW.h>
+#include "esp_pm.h"
+#include "esp_wifi.h"
 #include "config.h"
+
+#define MDNS_NAME "eink"  // reachable at http://eink.local/refresh
+#define HTTP_PORT 80
 
 #define EPD_CS   15
 #define EPD_DC   27
@@ -31,6 +39,8 @@ GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT> display(
 // global overflows the ESP32's fixed DRAM .bss budget once WiFi/HTTPClient's
 // own static buffers are linked in.
 static uint8_t *imageBuf = nullptr;
+
+static WiFiServer httpServer(HTTP_PORT);
 
 void connectWiFi() {
   Serial.printf("connecting to %s...\n", WIFI_SSID);
@@ -90,6 +100,31 @@ void refresh() {
   }
 }
 
+// Minimal hand-rolled HTTP: enough to notice a request line and reply, not a
+// real web server. Only GET /refresh does anything; everything else gets a
+// 404 so a browser poking at http://eink.local/ (which also fetches
+// /favicon.ico) doesn't trigger two refreshes.
+void handleClient() {
+  WiFiClient client = httpServer.available();
+  if (!client) return;
+
+  String requestLine = client.readStringUntil('\r');
+  while (client.connected() && client.available()) client.read();  // drain headers
+
+  bool isRefresh = requestLine.startsWith("GET /refresh");
+  client.println(isRefresh ? "HTTP/1.1 200 OK" : "HTTP/1.1 404 Not Found");
+  client.println("Content-Type: text/plain");
+  client.println("Connection: close");
+  client.println();
+  client.println(isRefresh ? "refreshing" : "not found");
+  client.stop();
+
+  if (isRefresh) {
+    Serial.println("refresh requested over HTTP");
+    refresh();
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -105,6 +140,35 @@ void setup() {
   display.init(115200);
 
   connectWiFi();
+
+  // Low power without going dark on the network: WiFi modem-sleep
+  // (MIN_MODEM) keeps the radio associated and reachable - the AP buffers
+  // frames for us between wakeups, so incoming requests still arrive, just
+  // with a little added latency (roughly a beacon interval, well under a
+  // second) - while esp_pm's automatic light sleep drops the CPU into a
+  // low-power state during idle time (loop()'s delay(20) already yields to
+  // FreeRTOS every iteration, giving it plenty of opportunities). Not deep
+  // sleep: deep sleep tears down WiFi entirely, so it can't receive
+  // GET /refresh or anything else - incompatible with "still listening".
+  //
+  // esp_pm_config_t here is the current (IDF 5.x-era arduino-esp32 3.x)
+  // struct name. If this doesn't compile against your installed core
+  // version, try esp_pm_config_esp32_t instead (older IDF 4.x naming).
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  esp_pm_config_t pm_config = {
+    .max_freq_mhz = 80,
+    .min_freq_mhz = 10,
+    .light_sleep_enable = true
+  };
+  esp_pm_configure(&pm_config);
+
+  if (MDNS.begin(MDNS_NAME)) {
+    Serial.printf("mDNS started: http://%s.local/refresh\n", MDNS_NAME);
+  } else {
+    Serial.println("mDNS setup failed (refresh still works by IP)");
+  }
+  httpServer.begin();
+
   refresh();
 }
 
@@ -120,6 +184,8 @@ void loop() {
     refresh();
   }
   lastPressed = pressed;
+
+  handleClient();
 
   delay(20);
 }

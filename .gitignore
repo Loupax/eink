@@ -1,6 +1,7 @@
 # Secrets/local config - never commit, see the .dist templates instead
 firmware/*/config.h
 server/weather_config.py
+server/todo.txt
 
 # Python
 __pycache__/
@@ -9,6 +10,7 @@ __pycache__/
 
 # Regenerated cache
 server/_weather_render.png
+server/screen.png
 
 # Local Claude Code session config
 .claude/

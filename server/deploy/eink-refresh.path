@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch server/todo.txt and trigger an eink.local display refresh on change
+
+[Path]
+PathChanged=/home/loupax/src/eink-weather/server/todo.txt
+Unit=eink-refresh.service
+
+[Install]
+WantedBy=multi-user.target
