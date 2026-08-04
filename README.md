@@ -51,7 +51,15 @@ All sketches: Arduino IDE, board = **ESP32 Dev Module**, library = **GxEPD2**
   request to `http://eink.local/refresh` (mDNS, no need to know its IP).
   Needs `config.h` (copy from `config.h.dist` and fill in your WiFi
   credentials and the image URL - `config.h` is gitignored since it holds
-  your WiFi password in plaintext).
+  your WiFi password in plaintext). Runs WiFi modem-sleep
+  (`WIFI_PS_MIN_MODEM`) + automatic CPU light sleep (`esp_pm_configure`,
+  `light_sleep_enable = true`) rather than staying fully awake at all times
+  - stays reachable for `/refresh` and the BOOT button (the AP buffers
+  frames between wakeups), at the cost of a few seconds' added latency per
+  request while it wakes and ramps `min_freq_mhz` back up. Deep sleep
+  (`eink_deep_sleep_test/` below) saves far more power but tears WiFi down
+  entirely, so it can't be used here without giving up network-triggered
+  refreshes.
 - **`eink_deep_sleep_test/`** - does nothing but immediately
   `esp_deep_sleep_start()`, waking every 60s or on BOOT press. For measuring
   the board's real sleep-current draw with a multimeter before committing to

@@ -12,6 +12,8 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <GxEPD2_BW.h>
+#include "esp_pm.h"
+#include "esp_wifi.h"
 #include "config.h"
 
 #define MDNS_NAME "eink"  // reachable at http://eink.local/refresh
@@ -138,6 +140,27 @@ void setup() {
   display.init(115200);
 
   connectWiFi();
+
+  // Low power without going dark on the network: WiFi modem-sleep
+  // (MIN_MODEM) keeps the radio associated and reachable - the AP buffers
+  // frames for us between wakeups, so incoming requests still arrive, just
+  // with a little added latency (roughly a beacon interval, well under a
+  // second) - while esp_pm's automatic light sleep drops the CPU into a
+  // low-power state during idle time (loop()'s delay(20) already yields to
+  // FreeRTOS every iteration, giving it plenty of opportunities). Not deep
+  // sleep: deep sleep tears down WiFi entirely, so it can't receive
+  // GET /refresh or anything else - incompatible with "still listening".
+  //
+  // esp_pm_config_t here is the current (IDF 5.x-era arduino-esp32 3.x)
+  // struct name. If this doesn't compile against your installed core
+  // version, try esp_pm_config_esp32_t instead (older IDF 4.x naming).
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  esp_pm_config_t pm_config = {
+    .max_freq_mhz = 80,
+    .min_freq_mhz = 10,
+    .light_sleep_enable = true
+  };
+  esp_pm_configure(&pm_config);
 
   if (MDNS.begin(MDNS_NAME)) {
     Serial.printf("mDNS started: http://%s.local/refresh\n", MDNS_NAME);

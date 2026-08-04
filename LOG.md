@@ -281,3 +281,26 @@ Waveshare 7.5" e-Paper (800x480, B&W) + Waveshare ESP32 Driver Board, Arduino ID
   already all-systemd for this project (avahi-alias@, eink-weather.service,
   eink-refresh.path), and it just targets the existing `.service` by name,
   no new script needed.
+- User asked for low power on the ESP32 without losing the ability to
+  receive network-triggered refreshes. Deep sleep (already explored in
+  Phase 5) was ruled out immediately - it tears WiFi down entirely, so
+  there's nothing to receive `GET /refresh` against; only a
+  device-wakes-and-polls model would work with deep sleep, which throws
+  away the instant on-demand refresh this session just built. Went with
+  `esp_wifi_set_ps(WIFI_PS_MIN_MODEM)` (radio modem-sleep, stays
+  associated/reachable - AP buffers frames between wakeups) +
+  `esp_pm_configure(light_sleep_enable=true)` (CPU light sleep during the
+  idle time `loop()`'s existing `delay(20)` already yields, no restructuring
+  needed). Compiled and flashed clean on the first try.
+  - Verified it's actually asleep without a multimeter: timed
+    `curl http://eink.local/refresh` repeatedly - first request 0.1s, every
+    one after consistently ~4s. That latency jump *is* the confirmation
+    (old always-on-power firmware stayed near-instant every time) - the
+    device is genuinely sleeping between requests and paying a wake cost,
+    not just idling at full power. ~4s is more than the sub-second beacon
+    wait modem-sleep alone would predict - likely `min_freq_mhz = 10`
+    forcing request-handling itself to run briefly at a very low clock
+    before scaling back up. User confirmed 4s is fine for this use case
+    (todo.txt edits and an hourly timer, nothing latency-sensitive) - left
+    tuning (raising `min_freq_mhz` to trade some power for faster wake) as a
+    known knob, not implemented.
