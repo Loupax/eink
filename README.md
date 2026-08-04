@@ -230,6 +230,10 @@ systemd units: a `PathChanged` watch on `todo.txt` that calls
 `http://eink.local/refresh` (see `eink_lan_display`'s HTTP refresh endpoint
 above) whenever the file is edited, so the physical display updates itself
 without needing the BOOT button pressed or a manual refresh call.
+`eink-refresh.timer` fires the same `eink-refresh.service` hourly
+(`OnCalendar=hourly`, `Persistent=true` so a missed run while brick was off
+fires once it's back), for weather changes that happen with no todo.txt
+edit in between.
 
 ### `tools/eink_convert.py`
 

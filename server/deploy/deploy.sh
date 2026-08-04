@@ -99,12 +99,15 @@ see server/deploy/eink-refresh.*):
   sudo pacman -S --needed nss-mdns
   sudo sed -i 's/^hosts: mymachines resolve/hosts: mymachines mdns4_minimal [NOTFOUND=return] resolve/' /etc/nsswitch.conf
 
-To auto-refresh the eink display whenever todo.txt changes:
+To auto-refresh the eink display whenever todo.txt changes, and once an
+hour regardless (weather changes even with no todo edits):
 
   sudo cp $REMOTE_DIR/server/deploy/eink-refresh.path /etc/systemd/system/eink-refresh.path
   sudo cp $REMOTE_DIR/server/deploy/eink-refresh.service /etc/systemd/system/eink-refresh.service
+  sudo cp $REMOTE_DIR/server/deploy/eink-refresh.timer /etc/systemd/system/eink-refresh.timer
   sudo systemctl daemon-reload
   sudo systemctl enable --now eink-refresh.path
+  sudo systemctl enable --now eink-refresh.timer
 MSG
 fi
 

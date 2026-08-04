@@ -275,3 +275,9 @@ Waveshare 7.5" e-Paper (800x480, B&W) + Waveshare ESP32 Driver Board, Arduino ID
     the entire time - every rendering-quality change this session had only
     ever been validated against the *local* dev server's font, not brick's.
     Installing `ttf-liberation` fixed that retroactively too.
+- Added `eink-refresh.timer` (2026-08-04): fires the same
+  `eink-refresh.service` hourly regardless of `todo.txt` edits, since
+  weather changes on its own. Picked systemd timer over cron - brick's
+  already all-systemd for this project (avahi-alias@, eink-weather.service,
+  eink-refresh.path), and it just targets the existing `.service` by name,
+  no new script needed.
